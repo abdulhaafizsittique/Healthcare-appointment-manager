@@ -1,0 +1,226 @@
+// ==========================================================
+// Healthcare Appointment & Follow-up Manager - DB Schema
+// Provider: SQLite by default (zero-config, file-based) so the
+// project runs anywhere with no external DB service. Swap
+// `provider` to "postgresql" and set DATABASE_URL to a Postgres
+// connection string for production - the schema is portable.
+// ==========================================================
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite" // change to "postgresql" for production
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  ADMIN
+  DOCTOR
+  PATIENT
+}
+
+enum AppointmentStatus {
+  HELD        // slot temporarily reserved while patient fills symptom form (hold/TTL)
+  BOOKED      // confirmed
+  CANCELLED
+  COMPLETED
+  NO_SHOW
+}
+
+enum Urgency {
+  LOW
+  MEDIUM
+  HIGH
+}
+
+enum NotificationType {
+  BOOKING_CONFIRMATION
+  REMINDER_APPOINTMENT
+  REMINDER_MEDICATION
+  CANCELLATION
+  RESCHEDULE
+  DOCTOR_LEAVE_CONFLICT
+}
+
+enum NotificationChannel {
+  EMAIL
+  CALENDAR
+}
+
+enum NotificationStatus {
+  PENDING
+  SENT
+  FAILED
+  RETRYING
+}
+
+model User {
+  id           String   @id @default(uuid())
+  email        String   @unique
+  passwordHash String
+  role         Role
+  name         String
+  phone        String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  // OAuth tokens for Google Calendar (per-user, patient or doctor)
+  googleTokens GoogleToken?
+
+  doctorProfile  Doctor?
+  patientProfile Patient?
+
+  @@index([role])
+}
+
+model GoogleToken {
+  id           String   @id @default(uuid())
+  userId       String   @unique
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  accessToken  String
+  refreshToken String
+  scope        String?
+  expiryDate   DateTime?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+}
+
+model Doctor {
+  id              String   @id @default(uuid())
+  userId          String   @unique
+  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  specialisation  String
+  slotDurationMin Int      @default(15) // minutes per appointment slot
+  bio             String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  workingHours    WorkingHour[]
+  leaves          DoctorLeave[]
+  appointments    Appointment[]
+
+  @@index([specialisation])
+}
+
+// Recurring weekly availability, e.g. Mon 09:00-17:00
+model WorkingHour {
+  id        String @id @default(uuid())
+  doctorId  String
+  doctor    Doctor @relation(fields: [doctorId], references: [id], onDelete: Cascade)
+  dayOfWeek Int    // 0 = Sunday ... 6 = Saturday
+  startTime String // "09:00" (24h, doctor's local clinic time)
+  endTime   String // "17:00"
+
+  @@index([doctorId, dayOfWeek])
+}
+
+// A specific date (or date range) the doctor is unavailable
+model DoctorLeave {
+  id        String   @id @default(uuid())
+  doctorId  String
+  doctor    Doctor   @relation(fields: [doctorId], references: [id], onDelete: Cascade)
+  startDate DateTime // inclusive, date-only semantics
+  endDate   DateTime // inclusive
+  reason    String?
+  createdAt DateTime @default(now())
+
+  @@index([doctorId, startDate, endDate])
+}
+
+model Patient {
+  id            String   @id @default(uuid())
+  userId        String   @unique
+  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  dateOfBirth   DateTime?
+  gender        String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  appointments  Appointment[]
+}
+
+// The core booking record. A UNIQUE constraint on (doctorId, startTime)
+// is the last line of defense against double-booking (see booking.service.js
+// for the full concurrency-safe strategy: DB transaction + row lock/unique
+// index + short-lived HELD state).
+model Appointment {
+  id            String            @id @default(uuid())
+  doctorId      String
+  doctor        Doctor            @relation(fields: [doctorId], references: [id])
+  patientId     String
+  patient       Patient           @relation(fields: [patientId], references: [id])
+
+  startTime     DateTime
+  endTime       DateTime
+  status        AppointmentStatus @default(HELD)
+  holdExpiresAt DateTime?         // only set while status = HELD
+
+  // Pre-visit
+  symptomsText     String?
+  preVisitSummary  String?   // AI generated JSON string {urgency, chiefComplaint, questions[]}
+  urgency          Urgency?
+  preVisitLlmError String?   // populated if LLM failed, so UI can show a graceful fallback
+
+  // Post-visit
+  doctorNotes       String?
+  prescription       String?  // free text or JSON of {drug, dosage, frequency, durationDays}[]
+  postVisitSummary   String?  // AI generated patient-friendly summary
+  postVisitLlmError  String?
+
+  // Calendar
+  patientCalendarEventId String?
+  doctorCalendarEventId  String?
+
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+  cancelledAt   DateTime?
+  cancelReason  String?
+
+  notifications Notification[]
+  reminders     MedicationReminder[]
+
+  // Prevents two CONFIRMED bookings for the same doctor at the same start time.
+  // (HELD slots are also checked at the application layer with a short TTL.)
+  @@unique([doctorId, startTime])
+  @@index([patientId])
+  @@index([doctorId, startTime])
+  @@index([status])
+}
+
+// One row per scheduled medication reminder derived from the prescription.
+model MedicationReminder {
+  id            String   @id @default(uuid())
+  appointmentId String
+  appointment   Appointment @relation(fields: [appointmentId], references: [id], onDelete: Cascade)
+  drugName      String
+  dosage        String?
+  scheduledAt   DateTime
+  sent          Boolean  @default(false)
+  sentAt        DateTime?
+  createdAt     DateTime @default(now())
+
+  @@index([scheduledAt, sent])
+}
+
+// Outbox pattern: every notification we owe the user is a row here.
+// A background worker processes PENDING/RETRYING rows so that transient
+// email/calendar failures never silently drop a notification.
+model Notification {
+  id            String              @id @default(uuid())
+  appointmentId String?
+  appointment   Appointment?        @relation(fields: [appointmentId], references: [id], onDelete: Cascade)
+  userId        String              // recipient
+  type          NotificationType
+  channel       NotificationChannel
+  status        NotificationStatus  @default(PENDING)
+  payload       String              // JSON snapshot of data needed to send (subject/body/etc.)
+  attempts      Int                 @default(0)
+  lastError     String?
+  nextAttemptAt DateTime            @default(now())
+  createdAt     DateTime            @default(now())
+  updatedAt     DateTime            @updatedAt
+
+  @@index([status, nextAttemptAt])
+}

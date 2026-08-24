@@ -1,0 +1,83 @@
+:root {
+  --primary: #1466b3;
+  --primary-dark: #0e4c85;
+  --bg: #f5f7fa;
+  --card: #ffffff;
+  --border: #dfe3e8;
+  --text: #1c2733;
+  --muted: #64748b;
+  --low: #1e9e6b;
+  --medium: #d38a00;
+  --high: #d13c3c;
+  font-family: "Segoe UI", system-ui, -apple-system, sans-serif;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+}
+
+a { color: var(--primary); text-decoration: none; }
+
+.container { max-width: 1080px; margin: 0 auto; padding: 24px; }
+
+.navbar {
+  display: flex; justify-content: space-between; align-items: center;
+  background: var(--card); border-bottom: 1px solid var(--border);
+  padding: 12px 24px;
+}
+.navbar .brand { font-weight: 700; color: var(--primary-dark); font-size: 18px; }
+.navbar nav a, .navbar nav button {
+  margin-left: 16px; font-size: 14px; background: none; border: none; cursor: pointer; color: var(--text);
+}
+
+.card {
+  background: var(--card); border: 1px solid var(--border); border-radius: 10px;
+  padding: 18px; margin-bottom: 16px;
+}
+
+.grid { display: grid; gap: 16px; }
+.grid-2 { grid-template-columns: 1fr 1fr; }
+.grid-3 { grid-template-columns: repeat(3, 1fr); }
+@media (max-width: 700px) { .grid-2, .grid-3 { grid-template-columns: 1fr; } }
+
+input, select, textarea {
+  width: 100%; padding: 9px 10px; border: 1px solid var(--border); border-radius: 6px;
+  font-size: 14px; margin-top: 4px; font-family: inherit;
+}
+label { font-size: 13px; font-weight: 600; color: var(--muted); display: block; margin-top: 10px; }
+
+button.btn {
+  background: var(--primary); color: white; border: none; padding: 9px 16px;
+  border-radius: 6px; font-size: 14px; cursor: pointer; margin-top: 12px;
+}
+button.btn:hover { background: var(--primary-dark); }
+button.btn.secondary { background: #fff; color: var(--primary); border: 1px solid var(--primary); }
+button.btn.danger { background: var(--high); }
+button.btn:disabled { opacity: 0.6; cursor: not-allowed; }
+
+.badge {
+  display: inline-block; padding: 2px 10px; border-radius: 12px; font-size: 12px; font-weight: 600;
+  color: white;
+}
+.badge.LOW, .badge.Low { background: var(--low); }
+.badge.MEDIUM, .badge.Medium { background: var(--medium); }
+.badge.HIGH, .badge.High { background: var(--high); }
+.badge.status { background: #e2e8f0; color: var(--text); }
+
+.slot-btn {
+  padding: 8px; border: 1px solid var(--border); border-radius: 6px; background: white;
+  cursor: pointer; font-size: 13px; text-align: center;
+}
+.slot-btn:hover { border-color: var(--primary); color: var(--primary); }
+.slot-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(90px, 1fr)); gap: 8px; margin-top: 8px; }
+
+.error-text { color: var(--high); font-size: 13px; margin-top: 6px; }
+.muted { color: var(--muted); font-size: 13px; }
+h1 { font-size: 22px; } h2 { font-size: 18px; } h3 { font-size: 15px; }
+.tabs { display: flex; gap: 8px; margin-bottom: 16px; }
+.tabs button { padding: 8px 14px; border: 1px solid var(--border); background: white; border-radius: 6px; cursor: pointer; }
+.tabs button.active { background: var(--primary); color: white; border-color: var(--primary); }
